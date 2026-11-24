@@ -1,15 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod chart;
 mod config;
+mod fonts;
+mod history;
 mod icon;
 mod ping;
-mod settings;
+mod window;
 
 use ab_glyph::FontVec;
 use config::Config;
+use history::History;
 use ping::{PingError, Report};
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use windows::Win32::Foundation::{
@@ -17,6 +20,7 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
     NIN_SELECT, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
@@ -30,10 +34,11 @@ const WM_APP_PING: u32 = WM_APP + 2;
 const TRAY_ID: u32 = 1;
 /// NIN_SELECT | NINF_KEY; windows-rs doesn't export it.
 const NIN_KEYSELECT: u32 = NIN_SELECT + 1;
-const MENU_SETTINGS: usize = 1;
-const MENU_QUIT: usize = 2;
-/// Samples kept for the tooltip's average / loss figures.
-const HISTORY_LEN: usize = 60;
+const MENU_OPEN: usize = 1;
+const MENU_SETTINGS: usize = 2;
+const MENU_QUIT: usize = 3;
+/// Pings the tooltip's average / loss figures cover.
+const TOOLTIP_SAMPLES: usize = 60;
 /// Latency colour: normal text up to this many milliseconds...
 const NORMAL_UP_TO_MS: u32 = 50;
 /// ...blending to fully red at this many.
@@ -56,7 +61,7 @@ struct App {
     config_tx: Sender<Config>,
     reports: Receiver<Report>,
     status: Status,
-    history: VecDeque<Option<u32>>,
+    history: History,
     font: FontVec,
     icon: Option<HICON>,
 }
@@ -122,12 +127,18 @@ impl App {
             Status::Error(_) => ("!".to_string(), None, 1.0),
         };
         let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32;
+        // Points to pixels at the same (system) DPI the icon size comes from.
+        let em_px = self
+            .config
+            .font_size_pt
+            .map(|pt| pt * unsafe { GetDpiForSystem() } as f32 / 72.0);
         let rgba = icon::render(
             &self.font,
             &number,
             unit,
             size,
             icon::color(severity, icon::taskbar_is_light()),
+            em_px,
         );
         if let Ok(new) = icon::create_hicon(&rgba, size) {
             if let Some(old) = self.icon.replace(new) {
@@ -147,16 +158,12 @@ impl App {
             Status::Error(e) => e.clone(),
         };
         let mut text = format!("Ping {}: {last}", self.config.host);
-        let replies: Vec<u32> = self.history.iter().flatten().copied().collect();
-        if !self.history.is_empty() {
-            let loss = 100 * (self.history.len() - replies.len()) / self.history.len();
-            let avg = if replies.is_empty() {
-                "–".to_string()
-            } else {
-                (replies.iter().map(|&ms| ms as u64).sum::<u64>() / replies.len() as u64)
-                    .to_string()
-            };
-            text += &format!("\nAvg {avg} ms, {loss}% loss (last {})", self.history.len());
+        if let Some(summary) = self.history.summary(Some(TOOLTIP_SAMPLES)) {
+            let avg = summary.avg_ms.map_or("–".to_string(), |ms| ms.to_string());
+            text += &format!(
+                "\nAvg {avg} ms, {:.0}% loss (last {})",
+                summary.loss_pct, summary.count
+            );
         }
 
         let mut tip = [0u16; 128];
@@ -190,10 +197,7 @@ impl App {
                 Err(PingError::Timeout) => Status::Timeout,
                 Err(PingError::Failed(e)) => Status::Error(e),
             };
-            if self.history.len() == HISTORY_LEN {
-                self.history.pop_front();
-            }
-            self.history.push_back(match self.status {
+            self.history.push(match self.status {
                 Status::Reply(ms) => Some(ms),
                 _ => None,
             });
@@ -201,6 +205,7 @@ impl App {
         }
         if changed {
             self.refresh();
+            window::update_stats(&self.history, &self.config.host);
         }
     }
 }
@@ -215,27 +220,45 @@ impl Drop for App {
     }
 }
 
-/// Saves new settings and applies them. Called by the settings window.
+/// Saves new settings and applies them. Called by the Settings tab.
 pub fn apply_config(new: Config) -> Result<(), String> {
+    let font_changed = with_app(|app| {
+        (app.config.font_family != new.font_family) || (app.config.font_weight != new.font_weight)
+    })
+    .unwrap_or(true);
+    let font = if font_changed {
+        let font = fonts::load(&new.font_family, new.font_weight)
+            .ok_or_else(|| format!("The font \"{}\" isn't installed.", new.font_family))?;
+        Some(font)
+    } else {
+        None
+    };
+
     config::save(&new).map_err(|e| e.to_string())?;
     with_app(|app| {
         if app.config.host != new.host {
             app.status = Status::Pending;
             app.history.clear();
         }
+        if let Some(font) = font {
+            app.font = font;
+        }
         app.config = new.clone();
         let _ = app.config_tx.send(new);
         app.refresh();
+        window::update_stats(&app.history, &app.config.host);
     })
     .ok_or_else(|| "The app is busy; try again.".to_string())
 }
 
-fn open_settings() {
-    let Some((instance, config)) = with_app(|app| (app.instance, app.config.clone())) else {
+fn open_window(tab: window::Tab) {
+    let Some((instance, config, history)) =
+        with_app(|app| (app.instance, app.config.clone(), app.history.clone()))
+    else {
         return;
     };
-    if let Err(e) = settings::show(instance, &config) {
-        error_box(&format!("Couldn't open settings: {}", e.message()));
+    if let Err(e) = window::show(instance, &config, &history, tab) {
+        error_box(&format!("Couldn't open Ping Monitor: {}", e.message()));
     }
 }
 
@@ -244,10 +267,11 @@ fn show_menu(hwnd: HWND, x: i32, y: i32) {
         let Ok(menu) = CreatePopupMenu() else {
             return;
         };
+        let _ = AppendMenuW(menu, MF_STRING, MENU_OPEN, w!("Open"));
         let _ = AppendMenuW(menu, MF_STRING, MENU_SETTINGS, w!("Settings…"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(menu, MF_STRING, MENU_QUIT, w!("Quit"));
-        let _ = SetMenuDefaultItem(menu, MENU_SETTINGS as u32, 0);
+        let _ = SetMenuDefaultItem(menu, MENU_OPEN as u32, 0);
 
         // Required so the menu closes when the user clicks elsewhere.
         let _ = SetForegroundWindow(hwnd);
@@ -264,7 +288,8 @@ fn show_menu(hwnd: HWND, x: i32, y: i32) {
         let _ = DestroyMenu(menu);
 
         match cmd.0 as usize {
-            MENU_SETTINGS => open_settings(),
+            MENU_OPEN => open_window(window::Tab::Stats),
+            MENU_SETTINGS => open_window(window::Tab::Settings),
             MENU_QUIT => {
                 let _ = DestroyWindow(hwnd);
             }
@@ -278,7 +303,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_APP_TRAY => {
             // NOTIFYICON_VERSION_4: the event is in LOWORD(lparam), the anchor point in wparam.
             match (lparam.0 & 0xFFFF) as u32 {
-                NIN_SELECT | NIN_KEYSELECT => open_settings(),
+                NIN_SELECT | NIN_KEYSELECT => open_window(window::Tab::Stats),
                 WM_CONTEXTMENU => {
                     let x = (wparam.0 & 0xFFFF) as i16 as i32;
                     let y = ((wparam.0 >> 16) & 0xFFFF) as i16 as i32;
@@ -335,7 +360,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
 
-        let font = icon::load_font().ok_or("No usable font found in the Windows Fonts folder")?;
+        let config = config::load();
+        // Fall back to Segoe UI if the configured font is gone (or this is Windows 10,
+        // which has no Segoe UI Variable).
+        let font = fonts::load(&config.font_family, config.font_weight)
+            .or_else(|| fonts::load("Segoe UI", config.font_weight))
+            .ok_or("No usable font found")?;
         let instance: HINSTANCE = GetModuleHandleW(None)?.into();
 
         let class = WNDCLASSEXW {
@@ -348,7 +378,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         if RegisterClassExW(&class) == 0 {
             return Err(windows::core::Error::from_thread().into());
         }
-        settings::register(instance)?;
+        window::register(instance)?;
         TASKBAR_CREATED.store(
             RegisterWindowMessageW(w!("TaskbarCreated")),
             Ordering::Relaxed,
@@ -371,7 +401,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             None,
         )?;
 
-        let config = config::load();
         let (config_tx, reports) = ping::spawn_worker(config.clone(), hwnd, WM_APP_PING)?;
         APP.with(|cell| {
             *cell.borrow_mut() = Some(App {
@@ -381,7 +410,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 config_tx,
                 reports,
                 status: Status::Pending,
-                history: VecDeque::with_capacity(HISTORY_LEN),
+                history: History::default(),
                 font,
                 icon: None,
             })
@@ -390,7 +419,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
-            if let Some(dialog) = settings::hwnd() {
+            if let Some(dialog) = window::hwnd() {
                 if IsDialogMessageW(dialog, &msg).as_bool() {
                     continue;
                 }

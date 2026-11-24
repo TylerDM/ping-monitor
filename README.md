@@ -2,8 +2,9 @@
 
 A tiny Windows tray app whose icon is your current ping, in milliseconds, to a host you choose.
 
-- **Left-click** the icon to open settings (host and ping interval).
-- **Right-click** for a menu with Settings and Quit.
+- **Left-click** the icon to open the Stats tab: a chart of latency and packet loss over the last 12 hours (kept in memory only, so it starts empty each time the app starts), with a summary (now, average, min, max, loss). It updates live.
+- The **Settings** tab sets the host, ping interval, and the icon's font family, weight and size.
+- **Right-click** for a menu with Open, Settings and Quit.
 - **Hover** for a tooltip with the last result, plus the average and packet loss over the last 60 pings.
 
 The number is drawn in the taskbar's own font (Segoe UI Variable) and text colour up to 50 ms, then shifts towards red, fully red at 200 ms. `×` means the request timed out and `!` means an error (hover for details). Colours follow the light or dark taskbar theme.
@@ -15,11 +16,14 @@ Settings are stored per user in `%APPDATA%\PingMonitor\config.json`:
 ```json
 {
   "host": "1.1.1.1",
-  "interval_ms": 5000
+  "interval_ms": 5000,
+  "font_family": "Segoe UI Variable Text",
+  "font_weight": 400,
+  "font_size_pt": null
 }
 ```
 
-The interval can be anything from 250 ms to 1 hour. Changes made in the settings window take effect immediately.
+The interval can be anything from 250 ms to 1 hour. `font_size_pt` is in points, or `null` to fit the text to the icon. Changes made on the Settings tab take effect immediately.
 
 ## Building
 

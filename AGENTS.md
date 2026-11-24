@@ -8,15 +8,18 @@ separate CLAUDE.md to keep in sync.
 
 A Windows tray app, written in Rust directly against Win32 (the `windows`
 crate), whose icon shows the current ping to a configurable host. There is no
-GUI framework: the tray icon is `Shell_NotifyIconW`, and the settings window is
-plain Win32 controls.
+GUI framework: the tray icon is `Shell_NotifyIconW`, and the window it opens is
+plain Win32 controls plus a custom-drawn chart.
 
 | File              | What it holds                                                    |
 | ----------------- | ---------------------------------------------------------------- |
 | `src/main.rs`     | entry point, hidden message window, tray icon, menu, app state   |
-| `src/settings.rs` | the settings window opened by clicking the tray icon             |
+| `src/window.rs`   | the window the tray icon opens: Stats and Settings tabs          |
+| `src/chart.rs`    | the Stats tab's latency / packet-loss chart (GDI + GDI+)         |
+| `src/history.rs`  | 12 hours of timestamped results, summaries, chart downsampling |
 | `src/ping.rs`     | ICMP echo (`IcmpSendEcho`) and the background ping thread        |
 | `src/icon.rs`     | renders the ping as text into an HICON; taskbar theme detection  |
+| `src/fonts.rs`    | finds installed fonts by family through DirectWrite              |
 | `src/config.rs`   | the per-user JSON config in `%APPDATA%\PingMonitor\config.json`  |
 | `app.manifest`    | embedded by `build.rs`: common controls v6, per-monitor DPI      |
 

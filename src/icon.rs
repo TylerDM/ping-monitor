@@ -1,4 +1,4 @@
-use ab_glyph::{Font, FontVec, OutlinedGlyph, PxScale, Rect, ScaleFont, VariableFont, point};
+use ab_glyph::{Font, FontVec, OutlinedGlyph, PxScale, Rect, ScaleFont, point};
 use std::ffi::c_void;
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::Graphics::Gdi::{
@@ -41,58 +41,87 @@ pub fn taskbar_is_light() -> bool {
     status == ERROR_SUCCESS && value != 0
 }
 
-/// The Windows UI font: Segoe UI Variable (Windows 11) at Regular weight and the
-/// "Text" optical size the taskbar clock uses, else Segoe UI (Windows 10).
-pub fn load_font() -> Option<FontVec> {
-    let windir = std::env::var_os("WINDIR").unwrap_or_else(|| r"C:\Windows".into());
-    let fonts = std::path::Path::new(&windir).join("Fonts");
-    let load = |name: &str| {
-        std::fs::read(fonts.join(name))
-            .ok()
-            .and_then(|data| FontVec::try_from_vec(data).ok())
-    };
-
-    if let Some(mut font) = load("SegUIVar.ttf") {
-        font.set_variation(b"wght", 400.0);
-        font.set_variation(b"opsz", 10.5);
-        return Some(font);
-    }
-    ["segoeui.ttf", "arial.ttf"].into_iter().find_map(load)
-}
-
-/// Height of the unit ("ms") relative to the number.
+/// Height of a single-letter unit ("s") relative to the number.
 const UNIT_SCALE: f32 = 0.5;
 /// Space between the number and the unit, in ems of the number.
 const UNIT_GAP: f32 = 0.06;
+/// Space between the stacked letters of a two-letter unit, as a fraction of
+/// the number's height.
+const STACK_GAP: f32 = 0.12;
 
-/// Lays out `number` followed by an optional smaller `unit` on the same baseline.
+/// Lays out `text` from `x` on `baseline`; returns the glyphs and the end x.
+fn run(
+    font: &FontVec,
+    text: &str,
+    scale: PxScale,
+    mut x: f32,
+    baseline: f32,
+) -> (Vec<OutlinedGlyph>, f32) {
+    let scaled = font.as_scaled(scale);
+    let mut prev = None;
+    let mut glyphs = Vec::new();
+    for c in text.chars() {
+        let id = scaled.glyph_id(c);
+        if let Some(prev) = prev {
+            x += scaled.kern(prev, id);
+        }
+        let glyph = id.with_scale_and_position(scale, point(x, baseline));
+        x += scaled.h_advance(id);
+        prev = Some(id);
+        glyphs.extend(font.outline_glyph(glyph));
+    }
+    (glyphs, x)
+}
+
+/// Ink height of `text` at a 100px scale.
+fn height_at_100(font: &FontVec, text: &str) -> f32 {
+    let (glyphs, _) = run(font, text, PxScale::from(100.0), 0.0, 100.0);
+    bounds(&glyphs).map_or(0.0, |b| b.height())
+}
+
+/// Lays out `number` followed by an optional `unit`. A two-letter unit ("ms")
+/// is stacked, first letter over second, to the height of the number, which
+/// takes less width than writing it out; anything else sits small on the
+/// baseline.
 fn layout(font: &FontVec, number: &str, unit: Option<&str>, scale: PxScale) -> Vec<OutlinedGlyph> {
     let baseline = font.as_scaled(scale).ascent();
-    let mut x = 0.0;
-    let mut glyphs = Vec::new();
-    let mut run = |text: &str, scale: PxScale, x: &mut f32| {
-        let scaled = font.as_scaled(scale);
-        let mut prev = None;
-        for c in text.chars() {
-            let id = scaled.glyph_id(c);
-            if let Some(prev) = prev {
-                *x += scaled.kern(prev, id);
-            }
-            let glyph = id.with_scale_and_position(scale, point(*x, baseline));
-            *x += scaled.h_advance(id);
-            prev = Some(id);
-            glyphs.extend(font.outline_glyph(glyph));
-        }
+    let (mut glyphs, end) = run(font, number, scale, 0.0, baseline);
+    let Some(unit) = unit else {
+        return glyphs;
     };
+    let x = end + scale.x * UNIT_GAP;
 
-    run(number, scale, &mut x);
-    if let Some(unit) = unit {
-        x += scale.x * UNIT_GAP;
+    let letters: Vec<String> = unit.chars().map(String::from).collect();
+    if let [top, bottom] = letters.as_slice() {
+        let number_h = height_at_100(font, number);
+        let (top_h, bottom_h) = (height_at_100(font, top), height_at_100(font, bottom));
+        let k = number_h * (1.0 - STACK_GAP) / (top_h + bottom_h);
+        let small = PxScale {
+            x: scale.x * k,
+            y: scale.y * k,
+        };
+        let gap = number_h * STACK_GAP * scale.y / 100.0;
+        let top_w = run(font, top, small, 0.0, 0.0).1;
+        let bottom_w = run(font, bottom, small, 0.0, 0.0).1;
+        let column = top_w.max(bottom_w);
+        let bottom_top = baseline - bottom_h * small.y / 100.0;
+        glyphs.extend(run(font, bottom, small, x + (column - bottom_w) / 2.0, baseline).0);
+        glyphs.extend(
+            run(
+                font,
+                top,
+                small,
+                x + (column - top_w) / 2.0,
+                bottom_top - gap,
+            )
+            .0,
+        );
+    } else {
         let small = PxScale {
             x: scale.x * UNIT_SCALE,
             y: scale.y * UNIT_SCALE,
         };
-        run(unit, small, &mut x);
+        glyphs.extend(run(font, unit, small, x, baseline).0);
     }
     glyphs
 }
@@ -104,16 +133,17 @@ fn bounds(glyphs: &[OutlinedGlyph]) -> Option<Rect> {
     })
 }
 
-/// Renders `number` (plus a small `unit` after it) as large as fits in a
-/// `size`×`size` RGBA image, centred. Wide strings are squeezed horizontally
-/// (down to a limit) before shrinking, so three digits stay readable in a
-/// 16px tray icon.
+/// Renders `number` (plus a small `unit` after it) into a `size`×`size` RGBA
+/// image, centred. `em_px` is the font size in pixels; `None` makes the text
+/// as large as fits. Text too big for the icon is squeezed horizontally (down
+/// to a limit) before shrinking, so three digits stay readable in a 16px icon.
 pub fn render(
     font: &FontVec,
     number: &str,
     unit: Option<&str>,
     size: u32,
     rgb: [u8; 3],
+    em_px: Option<f32>,
 ) -> Vec<u8> {
     const MIN_ASPECT: f32 = 0.7;
     let mut rgba = vec![0u8; (size * size * 4) as usize];
@@ -122,12 +152,21 @@ pub fn render(
     let Some(measured) = bounds(&layout(font, number, unit, PxScale::from(100.0))) else {
         return rgba;
     };
-    let mut sy = 100.0 * side / measured.height();
-    let mut sx = 100.0 * side / measured.width();
-    if sx > sy {
-        sx = sy;
-    } else if sx < sy * MIN_ASPECT {
-        sy = sx / MIN_ASPECT;
+    // PxScale is the font's ascent-to-descent height, not its em size.
+    let fit_y = 100.0 * side / measured.height();
+    let mut sy = match em_px {
+        Some(em) => {
+            (em * font.height_unscaled() / font.units_per_em().unwrap_or(1000.0)).min(fit_y)
+        }
+        None => fit_y,
+    };
+    let mut sx = sy;
+    let fit_x = 100.0 * side / measured.width();
+    if sx > fit_x {
+        sx = fit_x;
+        if sx < sy * MIN_ASPECT {
+            sy = sx / MIN_ASPECT;
+        }
     }
 
     let glyphs = layout(font, number, unit, PxScale { x: sx, y: sy });
