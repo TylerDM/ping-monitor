@@ -4,7 +4,7 @@
   sign-in, and launches the app when it finishes. Installing a newer MSI
   replaces the old version in place; Settings > Apps removes it.
 
-  Built by scripts/build-msi.ps1, which passes Version and ExePath.
+  Built by scripts/build-msi.ps1, which passes Version, ExePath and IconPath.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <!-- UpgradeCode must never change: it is how a new MSI finds the old install. -->
@@ -17,6 +17,9 @@
                   DowngradeErrorMessage="A newer version of Ping Monitor is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- Shown next to the app in Settings > Apps. -->
+    <Icon Id="AppIcon.ico" SourceFile="$(IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/TylerDM/ping-monitor" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="1" />

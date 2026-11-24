@@ -60,6 +60,24 @@ pub fn hwnd() -> Option<HWND> {
     WINDOW.get()
 }
 
+/// The app icon (resource 1, see app.rc) at the size `metric` names, so Windows
+/// picks the matching image instead of scaling one. Default icon if missing.
+fn app_icon(instance: HINSTANCE, metric: SYSTEM_METRICS_INDEX) -> HICON {
+    unsafe {
+        let size = GetSystemMetrics(metric);
+        LoadImageW(
+            Some(instance),
+            PCWSTR(1 as *const u16),
+            IMAGE_ICON,
+            size,
+            size,
+            LR_DEFAULTCOLOR,
+        )
+        .map(|handle| HICON(handle.0))
+        .unwrap_or_default()
+    }
+}
+
 pub fn register(instance: HINSTANCE) -> windows::core::Result<()> {
     unsafe {
         let _ = InitCommonControlsEx(&INITCOMMONCONTROLSEX {
@@ -73,6 +91,8 @@ pub fn register(instance: HINSTANCE) -> windows::core::Result<()> {
         lpfnWndProc: Some(wndproc),
         hInstance: instance,
         hCursor: unsafe { LoadCursorW(None, IDC_ARROW)? },
+        hIcon: app_icon(instance, SM_CXICON),
+        hIconSm: app_icon(instance, SM_CXSMICON),
         hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as usize as *mut c_void),
         lpszClassName: CLASS_NAME,
         ..Default::default()

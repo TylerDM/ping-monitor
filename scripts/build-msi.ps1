@@ -25,6 +25,7 @@ try {
         -arch x64 `
         -d "Version=$version" `
         -d "ExePath=$(Join-Path $root 'target\release\ping-monitor.exe')" `
+        -d "IconPath=$(Join-Path $root 'assets\app.ico')" `
         -o $out
     if ($LASTEXITCODE -ne 0) { throw 'wix build failed' }
 

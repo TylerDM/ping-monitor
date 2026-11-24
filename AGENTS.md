@@ -26,6 +26,7 @@ plain Win32 controls plus a custom-drawn chart.
 | `src/startup.rs`  | the start-at-sign-in switch (`Run` + `StartupApproved\Run`)      |
 | `installer/`      | the per-user WiX MSI; `scripts/build-msi.ps1` builds it          |
 | `app.manifest`    | embedded by `build.rs`: common controls v6, per-monitor DPI      |
+| `assets/app.ico`  | app icon, compiled in via `app.rc`; `scripts/make-icon.ps1` draws it |
 
 ## Rules
 

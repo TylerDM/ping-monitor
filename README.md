@@ -42,7 +42,7 @@ You need Rust (MSVC toolchain) and the Visual Studio Build Tools with the C++ wo
 cargo build --release
 ```
 
-The binary ends up at `target\release\ping-monitor.exe`. Release builds have no console window; debug builds keep one for logging.
+The binary ends up at `target\release\ping-monitor.exe`. The app icon (`assets\app.ico`) is drawn by `scripts/make-icon.ps1`; edit the script and rerun it to change the icon. Release builds have no console window; debug builds keep one for logging.
 
 The installer is built with [WiX](https://wixtoolset.org/), pinned as a repo-local dotnet tool in `dotnet-tools.json` (it needs the .NET SDK). `scripts/build-msi.ps1` builds `target\wix\PingMonitor.msi`, versioned from `Cargo.toml`.
 
