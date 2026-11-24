@@ -1,0 +1,75 @@
+###############################################################################
+# Line endings
+#
+# The working tree is LF everywhere -- Windows and Linux alike. This file is
+# committed, so it applies to every clone regardless of each developer's local
+# core.autocrlf setting. Settings here WIN over core.autocrlf and core.eol.
+#
+#   text=auto  -> Git decides text vs binary by content sniffing
+#   eol=lf     -> checked-out text files get LF in the working tree
+#
+# Result: the index and the working tree are both LF. Editors on Windows
+# (VS Code, RustRover, Visual Studio) all handle LF natively, and
+# .editorconfig keeps new files consistent.
+###############################################################################
+* text=auto eol=lf
+
+###############################################################################
+# Files that MUST keep CRLF to function
+###############################################################################
+# Windows batch interpreters mis-parse LF-only scripts.
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+###############################################################################
+# Explicit text types (belt and braces -- content sniffing can misfire on files
+# with unusual encodings or long lines)
+###############################################################################
+*.rs            text eol=lf diff=rust
+*.toml          text eol=lf
+*.manifest      text eol=lf
+*.rc            text eol=lf
+
+*.json          text eol=lf
+*.jsonc         text eol=lf
+*.md            text eol=lf diff=markdown
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.xml           text eol=lf
+*.sh            text eol=lf
+*.ps1           text eol=lf
+*.psm1          text eol=lf
+*.ts            text eol=lf
+*.editorconfig  text eol=lf
+*.gitattributes text eol=lf
+*.gitignore     text eol=lf
+LICENSE         text eol=lf
+
+###############################################################################
+# Binary -- never normalize, never diff as text
+###############################################################################
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.bmp           binary
+*.svg           text eol=lf
+*.ttf           binary
+*.otf           binary
+*.pdf           binary
+*.zip           binary
+*.gz            binary
+*.7z            binary
+*.dll           binary
+*.exe           binary
+*.pdb           binary
+*.lib           binary
+*.so            binary
+*.msix          binary
+*.pfx           binary
+
+###############################################################################
+# Generated -- keep out of diffs, reviews and language stats
+###############################################################################
+Cargo.lock      text eol=lf -diff linguist-generated=true

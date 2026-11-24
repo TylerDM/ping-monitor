@@ -1,0 +1,35 @@
+# Dependency updates.
+#
+# Cargo.lock and the action refs pin everything. Pinning is what makes builds
+# reproducible, and it is also what makes them rot, so Dependabot keeps them
+# moving. Grouping is the difference between this being useful and being
+# noise: one grouped PR a week gets reviewed, ten single-crate ones get ignored.
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # windows-rs breaks its API on every 0.x release. Bump it by hand, with
+      # intent, and fix the call sites in the same commit.
+      - dependency-name: windows
+        update-types: [version-update:semver-minor]
+
+  # The easiest supply-chain gap to forget: an action pinned to a tag that
+  # quietly stops being maintained.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]

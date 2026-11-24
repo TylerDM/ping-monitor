@@ -1,0 +1,37 @@
+###############################################################################
+# Rust
+###############################################################################
+# Build output. Anchored: a folder named `target` anywhere else is source.
+/target/
+# Backups rustfmt leaves behind.
+**/*.rs.bk
+
+###############################################################################
+# IDEs
+###############################################################################
+.vs/
+.idea/
+*.swp
+*~
+
+# VS Code: share the team-wide config, ignore per-user state.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+###############################################################################
+# Secrets & local environment
+#
+# Code-signing certificates, should this ever be packaged and signed.
+###############################################################################
+.env
+.env.*
+*.pfx
+*.p12
+
+###############################################################################
+# OS cruft
+###############################################################################
+.DS_Store
+Thumbs.db
+desktop.ini

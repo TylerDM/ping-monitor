@@ -1,0 +1,13 @@
+# Pins the toolchain so every machine and CI build with the same compiler.
+# rustup reads this on the first `cargo` call and installs whatever is missing.
+#
+# The Windows target is listed so Linux machines get it too: the app only
+# runs on Windows, but `cargo check` / `cargo clippy` with
+# `--target x86_64-pc-windows-msvc` work anywhere, since they never link.
+#
+# Keep `channel` in step with `rust-version` in Cargo.toml.
+[toolchain]
+channel = "1.85.1"
+components = ["clippy", "rustfmt"]
+targets = ["x86_64-pc-windows-msvc"]
+profile = "minimal"
