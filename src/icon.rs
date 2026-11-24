@@ -45,9 +45,11 @@ pub fn taskbar_is_light() -> bool {
 const UNIT_SCALE: f32 = 0.5;
 /// Space between the number and the unit, in ems of the number.
 const UNIT_GAP: f32 = 0.06;
-/// Space between the stacked letters of a two-letter unit, as a fraction of
-/// the number's height.
-const STACK_GAP: f32 = 0.12;
+/// Height of a stacked two-letter unit ("ms"), as a fraction of the number's
+/// height. The stack sits on the baseline.
+const STACK_HEIGHT: f32 = 0.7;
+/// Space between the stacked letters, as a fraction of the number's height.
+const STACK_GAP: f32 = 0.1;
 
 /// Lays out `text` from `x` on `baseline`; returns the glyphs and the end x.
 fn run(
@@ -80,9 +82,8 @@ fn height_at_100(font: &FontVec, text: &str) -> f32 {
 }
 
 /// Lays out `number` followed by an optional `unit`. A two-letter unit ("ms")
-/// is stacked, first letter over second, to the height of the number, which
-/// takes less width than writing it out; anything else sits small on the
-/// baseline.
+/// is stacked, first letter over second, on the baseline, which takes less
+/// width than writing it out; anything else sits small on the baseline.
 fn layout(font: &FontVec, number: &str, unit: Option<&str>, scale: PxScale) -> Vec<OutlinedGlyph> {
     let baseline = font.as_scaled(scale).ascent();
     let (mut glyphs, end) = run(font, number, scale, 0.0, baseline);
@@ -93,26 +94,41 @@ fn layout(font: &FontVec, number: &str, unit: Option<&str>, scale: PxScale) -> V
 
     let letters: Vec<String> = unit.chars().map(String::from).collect();
     if let [top, bottom] = letters.as_slice() {
+        // Each letter is scaled to the same ink height, so the wide "m"
+        // doesn't stand taller than the "s" (their natural heights differ by
+        // the "s"'s overshoot).
         let number_h = height_at_100(font, number);
-        let (top_h, bottom_h) = (height_at_100(font, top), height_at_100(font, bottom));
-        let k = number_h * (1.0 - STACK_GAP) / (top_h + bottom_h);
-        let small = PxScale {
-            x: scale.x * k,
-            y: scale.y * k,
+        let letter_h = number_h * (STACK_HEIGHT - STACK_GAP) / 2.0;
+        let scale_for = |letter: &str| {
+            let k = letter_h / height_at_100(font, letter).max(f32::MIN_POSITIVE);
+            PxScale {
+                x: scale.x * k,
+                y: scale.y * k,
+            }
         };
-        let gap = number_h * STACK_GAP * scale.y / 100.0;
-        let top_w = run(font, top, small, 0.0, 0.0).1;
-        let bottom_w = run(font, bottom, small, 0.0, 0.0).1;
+        let (top_scale, bottom_scale) = (scale_for(top), scale_for(bottom));
+        let px = scale.y / 100.0;
+        let top_w = run(font, top, top_scale, 0.0, 0.0).1;
+        let bottom_w = run(font, bottom, bottom_scale, 0.0, 0.0).1;
         let column = top_w.max(bottom_w);
-        let bottom_top = baseline - bottom_h * small.y / 100.0;
-        glyphs.extend(run(font, bottom, small, x + (column - bottom_w) / 2.0, baseline).0);
+        let top_baseline = baseline - (letter_h + number_h * STACK_GAP) * px;
+        glyphs.extend(
+            run(
+                font,
+                bottom,
+                bottom_scale,
+                x + (column - bottom_w) / 2.0,
+                baseline,
+            )
+            .0,
+        );
         glyphs.extend(
             run(
                 font,
                 top,
-                small,
+                top_scale,
                 x + (column - top_w) / 2.0,
-                bottom_top - gap,
+                top_baseline,
             )
             .0,
         );
