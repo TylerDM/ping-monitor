@@ -137,19 +137,12 @@ impl Placed {
     }
 }
 
-/// Renders `number`, with an optional `unit` after it, into a `size`×`size`
-/// RGBA image. The unit is a fixed small size, bottom-aligned with the
-/// number: a two-letter unit ("ms") is stacked, first letter over second.
-/// The number takes all the remaining room, squeezed horizontally (down to a
-/// limit) before it gets shorter, so three digits stay readable.
-pub fn render(
-    font: &FontVec,
-    number: &str,
-    unit: Option<&str>,
-    size: u32,
-    rgb: [u8; 3],
-) -> Vec<u8> {
-    let mut rgba = vec![0u8; (size * size * 4) as usize];
+/// Lays out `number`, with an optional `unit` after it, in a `size`×`size`
+/// square. The unit is a fixed small size, bottom-aligned with the number: a
+/// two-letter unit ("ms") is stacked, first letter over second. The number
+/// takes all the remaining room, squeezed horizontally (down to a limit)
+/// before it gets shorter, so three digits stay readable.
+fn arrange(font: &FontVec, number: &str, unit: Option<&str>, size: u32) -> Option<Vec<Placed>> {
     let side = size as f32;
 
     // The unit first: its size doesn't depend on the number.
@@ -171,35 +164,61 @@ pub fn render(
     };
 
     // Then the number, as large as fits in the rest.
-    let Some(measured) = Placed::new(font, number, PxScale::from(100.0)) else {
-        return rgba;
-    };
+    let measured = Placed::new(font, number, PxScale::from(100.0))?;
+    let room = side - unit_w;
     let mut sy = 100.0 * side / measured.bounds.height();
-    let fit_x = 100.0 * (side - unit_w) / measured.width();
-    let mut sx = sy;
-    if sx > fit_x {
-        sx = fit_x;
-        sy = sy.min(sx / MIN_ASPECT);
-    }
-    let Some(mut digits) = Placed::new(font, number, PxScale { x: sx, y: sy }) else {
-        return rgba;
+    let mut sx = sy.min(100.0 * room / measured.width());
+    sy = sy.min(sx / MIN_ASPECT);
+    // That estimate scales a measurement from another size; whole-pixel
+    // bounds at the real size can come out a pixel or two wider or taller,
+    // which clipped the number or pushed the unit off the edge. Shrink until
+    // it really fits.
+    let mut digits = loop {
+        let digits = Placed::new(font, number, PxScale { x: sx, y: sy })?;
+        let (width, height) = (digits.width(), digits.bounds.height());
+        if (width <= room && height <= side) || sx < 1.0 {
+            break digits;
+        }
+        if height > side {
+            sy *= (side - 0.5) / height;
+            sx = sx.min(sy);
+        }
+        if width > room {
+            sx *= (room - 0.5) / width;
+            sy = sy.min(sx / MIN_ASPECT);
+        }
     };
 
     // Centre the whole group; the unit sits on the number's bottom edge.
     let left = ((side - digits.width() - unit_w) / 2.0).round();
     let bottom = ((side + digits.bounds.height()) / 2.0).round();
     digits.place(left, bottom);
-    let column_x = side - ((side - digits.width() - unit_w) / 2.0).round() - column_w;
+    let column_x = left + digits.width() + (unit_w - column_w);
     let stack_gap = (side * STACK_GAP).round().max(1.0);
     let mut floor = digits.bottom();
     for part in unit_parts.iter_mut().rev() {
-        let x = column_x + (column_w - part.width()) / 2.0;
+        // Whole pixels, so centring a narrower letter can't round it outward.
+        let x = column_x + ((column_w - part.width()) / 2.0).floor();
         part.place(x, floor);
         floor = part.top() - stack_gap;
     }
+    unit_parts.insert(0, digits);
+    Some(unit_parts)
+}
+
+/// Renders [`arrange`]'s layout into a `size`×`size` RGBA image.
+pub fn render(
+    font: &FontVec,
+    number: &str,
+    unit: Option<&str>,
+    size: u32,
+    rgb: [u8; 3],
+) -> Vec<u8> {
+    let mut rgba = vec![0u8; (size * size * 4) as usize];
+    let parts = arrange(font, number, unit, size).unwrap_or_default();
 
     let mut coverage = vec![0f32; (size * size) as usize];
-    for part in std::iter::once(&digits).chain(&unit_parts) {
+    for part in &parts {
         for glyph in &part.glyphs {
             let gb = glyph.px_bounds();
             glyph.draw(|x, y, c| {
@@ -257,5 +276,51 @@ pub fn create_hicon(rgba: &[u8], size: u32) -> windows::core::Result<HICON> {
         let _ = DeleteObject(color.into());
         let _ = DeleteObject(mask.into());
         icon
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_ping_fits_inside_the_icon() {
+        let font = crate::fonts::load("Segoe UI Variable Text", 400)
+            .or_else(|| crate::fonts::load("Segoe UI", 400))
+            .expect("a Segoe UI font");
+        let mut cases: Vec<(String, Option<&str>)> =
+            (1..1000).map(|ms| (ms.to_string(), Some("ms"))).collect();
+        cases.push(("<1".into(), Some("ms")));
+        cases.extend((1..10).map(|s| (s.to_string(), Some("s"))));
+
+        let mut failures = Vec::new();
+        // Small-icon sizes at 100% to 300% display scaling.
+        for size in [16u32, 20, 24, 28, 32, 36, 40, 48] {
+            for (number, unit) in &cases {
+                let parts = arrange(&font, number, *unit, size).expect("laid out");
+                for part in &parts {
+                    let (dx, dy) = (part.dx as f32, part.dy as f32);
+                    let (left, right) = (part.bounds.min.x + dx, part.bounds.max.x + dx);
+                    let (top, bottom) = (part.bounds.min.y + dy, part.bounds.max.y + dy);
+                    if left < 0.0 || top < 0.0 || right > size as f32 || bottom > size as f32 {
+                        failures.push(format!("{number}{} at {size}px", unit.unwrap_or("")));
+                    }
+                }
+                // The unit starts to the right of where the number ends.
+                let number_right = parts[0].bounds.max.x + parts[0].dx as f32;
+                if parts[1..]
+                    .iter()
+                    .any(|p| p.bounds.min.x + (p.dx as f32) < number_right)
+                {
+                    failures.push(format!("{number} overlaps its unit at {size}px"));
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{} clipped: {:?}",
+            failures.len(),
+            &failures[..failures.len().min(20)]
+        );
     }
 }
