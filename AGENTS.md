@@ -23,6 +23,7 @@ plain Win32 controls plus a custom-drawn chart.
 | `src/config.rs`   | the per-user JSON config in `%APPDATA%\PingMonitor\config.json`  |
 | `src/update.rs`   | daily GitHub release check, MSI download and install             |
 | `src/http.rs`     | minimal HTTPS GET over WinHTTP                                   |
+| `src/startup.rs`  | the start-at-sign-in switch (`Run` + `StartupApproved\Run`)      |
 | `installer/`      | the per-user WiX MSI; `scripts/build-msi.ps1` builds it          |
 | `app.manifest`    | embedded by `build.rs`: common controls v6, per-monitor DPI      |
 

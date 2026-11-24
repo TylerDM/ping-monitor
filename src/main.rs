@@ -7,6 +7,7 @@ mod history;
 mod http;
 mod icon;
 mod ping;
+mod startup;
 mod update;
 mod window;
 

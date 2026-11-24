@@ -3,7 +3,7 @@
 A tiny Windows tray app whose icon is your current ping, in milliseconds, to a host you choose.
 
 - **Left-click** the icon to open the Stats tab: a chart of latency and packet loss over the last 12 hours (kept in memory only, so it starts empty each time the app starts), with a summary (now, average, min, max, loss). It updates live.
-- The **Settings** tab sets the host, ping interval, and the icon's font family and weight. The number is always drawn as large as the icon allows, next to a small fixed-size `ms`.
+- The **Settings** tab sets the host, ping interval, the icon's font family and weight, and whether it starts when you sign in. The number is always drawn as large as the icon allows, next to a small fixed-size `ms`.
 - **Right-click** for a menu with Open, Settings, Check for updates and Quit.
 - **Hover** for a tooltip with the last result, plus the average and packet loss over the last 60 pings.
 
@@ -16,7 +16,7 @@ Download **[PingMonitor.msi](https://github.com/TylerDM/ping-monitor/releases/la
 The MSI isn't code-signed, so the first time, SmartScreen may say "Windows protected your PC": choose **More info**, then **Run anyway**.
 
 - **Updates:** Ping Monitor checks GitHub for a new release a minute after it starts and then daily. When there is one, a notification offers it; click it (or **Install update** in the tray menu) and it downloads, installs and restarts itself. **Check for updates** in the menu checks right away. Installing a newer MSI by hand works too.
-- **Starting at sign-in:** switch it off in Task Manager → Startup apps.
+- **Starting at sign-in:** on by default. Untick **Start Ping Monitor when I sign in** on the Settings tab to stop it (Task Manager → Startup apps controls the same switch). Updates keep your choice.
 - **Uninstalling:** Settings → Apps → Installed apps → Ping Monitor → Uninstall. Your settings in `%APPDATA%\PingMonitor` are kept.
 
 ## Settings

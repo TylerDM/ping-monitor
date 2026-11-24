@@ -5,6 +5,7 @@ use crate::chart;
 use crate::config::{self, Config};
 use crate::fonts;
 use crate::history::History;
+use crate::startup;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -14,9 +15,9 @@ use windows::Win32::Graphics::Gdi::{
     SetBkColor,
 };
 use windows::Win32::UI::Controls::{
-    EM_SETSEL, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, NMHDR, TCIF_TEXT,
-    TCITEMW, TCM_GETCURSEL, TCM_GETITEMRECT, TCM_INSERTITEMW, TCM_SETCURSEL, TCN_SELCHANGE,
-    WC_TABCONTROLW,
+    BST_CHECKED, EM_SETSEL, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, NMHDR,
+    TCIF_TEXT, TCITEMW, TCM_GETCURSEL, TCM_GETITEMRECT, TCM_INSERTITEMW, TCM_SETCURSEL,
+    TCN_SELCHANGE, WC_TABCONTROLW,
 };
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForMonitor, MDT_EFFECTIVE_DPI, SystemParametersInfoForDpi,
@@ -33,6 +34,7 @@ const ID_INTERVAL: i32 = 101;
 const ID_FONT_FAMILY: i32 = 102;
 const ID_FONT_WEIGHT: i32 = 103;
 const ID_TABS: i32 = 105;
+const ID_START_AT_SIGN_IN: i32 = 106;
 // Static control styles; windows-rs doesn't export these.
 const SS_NOPREFIX: u32 = 0x0080;
 const SS_ENDELLIPSIS: u32 = 0x4000;
@@ -426,6 +428,26 @@ pub fn show(
         )?;
         settings.push(weight);
 
+        // Read from Windows, not the config file: Task Manager can change it too.
+        y += 64;
+        let sign_in = child(
+            w!("BUTTON"),
+            &"Start Ping Monitor when I sign in".into(),
+            WINDOW_STYLE(BS_AUTOCHECKBOX as u32 | WS_TABSTOP.0),
+            WINDOW_EX_STYLE(0),
+            (margin, y, field_w, 20),
+            ID_START_AT_SIGN_IN,
+        )?;
+        if startup::is_enabled() {
+            SendMessageW(
+                sign_in,
+                BM_SETCHECK,
+                Some(WPARAM(BST_CHECKED.0 as usize)),
+                None,
+            );
+        }
+        settings.push(sign_in);
+
         let buttons_y = height - margin - button_h;
         let cancel_x = width - margin - button_w;
         settings.push(child(
@@ -551,7 +573,19 @@ fn save(hwnd: HWND) {
         font_family,
         font_weight,
     };
-    match crate::apply_config(new) {
+    let start_at_sign_in = unsafe {
+        GetDlgItem(Some(hwnd), ID_START_AT_SIGN_IN).is_ok_and(|check| {
+            SendMessageW(check, BM_GETCHECK, None, None).0 == BST_CHECKED.0 as isize
+        })
+    };
+
+    let result = crate::apply_config(new).and_then(|()| {
+        if start_at_sign_in != startup::is_enabled() {
+            startup::set_enabled(start_at_sign_in)?;
+        }
+        Ok(())
+    });
+    match result {
         Ok(()) => unsafe {
             let _ = DestroyWindow(hwnd);
         },
