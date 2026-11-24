@@ -23,7 +23,6 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
-use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
     NIM_MODIFY, NIM_SETVERSION, NIN_SELECT, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
@@ -165,18 +164,13 @@ impl App {
             Status::Error(_) => ("!".to_string(), None, 1.0),
         };
         let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32;
-        // Points to pixels at the same (system) DPI the icon size comes from.
-        let em_px = self
-            .config
-            .font_size_pt
-            .map(|pt| pt * unsafe { GetDpiForSystem() } as f32 / 72.0);
+
         let rgba = icon::render(
             &self.font,
             &number,
             unit,
             size,
             icon::color(severity, icon::taskbar_is_light()),
-            em_px,
         );
         if let Ok(new) = icon::create_hicon(&rgba, size) {
             if let Some(old) = self.icon.replace(new) {

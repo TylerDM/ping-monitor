@@ -32,11 +32,7 @@ const ID_HOST: i32 = 100;
 const ID_INTERVAL: i32 = 101;
 const ID_FONT_FAMILY: i32 = 102;
 const ID_FONT_WEIGHT: i32 = 103;
-const ID_FONT_SIZE: i32 = 104;
 const ID_TABS: i32 = 105;
-/// Point sizes offered in the size box; any other value can be typed in.
-const FONT_SIZES: [u32; 11] = [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20];
-const AUTO_SIZE: &str = "Auto";
 // Static control styles; windows-rs doesn't export these.
 const SS_NOPREFIX: u32 = 0x0080;
 const SS_ENDELLIPSIS: u32 = 0x4000;
@@ -375,8 +371,7 @@ pub fn show(
         };
         let edit = WINDOW_STYLE((ES_AUTOHSCROLL as u32) | WS_TABSTOP.0);
         let list = WINDOW_STYLE(CBS_DROPDOWNLIST as u32 | WS_VSCROLL.0 | WS_TABSTOP.0);
-        let (weight_w, gap) = (150, 8);
-        let size_x = margin + weight_w + gap;
+        let weight_w = 150;
         let field_w = 320;
 
         let mut y = page_y;
@@ -430,19 +425,6 @@ pub fn show(
             ID_FONT_WEIGHT,
         )?;
         settings.push(weight);
-        settings.push(label(
-            "Size (points):",
-            (size_x, y, field_w - weight_w - gap, label_h),
-        )?);
-        let size = child(
-            w!("COMBOBOX"),
-            &"".into(),
-            WINDOW_STYLE(CBS_DROPDOWN as u32 | WS_VSCROLL.0 | WS_TABSTOP.0),
-            WINDOW_EX_STYLE(0),
-            (size_x, y + label_h + 2, field_w - weight_w - gap, 300),
-            ID_FONT_SIZE,
-        )?;
-        settings.push(size);
 
         let buttons_y = height - margin - button_h;
         let cancel_x = width - margin - button_w;
@@ -484,16 +466,6 @@ pub fn show(
             .min_by_key(|(_, (w, _))| w.abs_diff(current.font_weight))
             .map_or(0, |(i, _)| i);
         SendMessageW(weight, CB_SETCURSEL, Some(WPARAM(nearest)), None);
-
-        add_item(size, AUTO_SIZE);
-        for pt in FONT_SIZES {
-            add_item(size, &pt.to_string());
-        }
-        let size_text = match current.font_size_pt {
-            Some(pt) => pt.to_string(),
-            None => AUTO_SIZE.to_string(),
-        };
-        let _ = SetWindowTextW(size, &HSTRING::from(size_text));
 
         PAGES.set([stats, settings]);
         select_tab(tab);
@@ -572,32 +544,12 @@ fn save(hwnd: HWND) {
         .ok()
         .and_then(|i| fonts::WEIGHTS.get(i))
         .map_or(400, |(weight, _)| *weight);
-    let size_text = control_text(hwnd, ID_FONT_SIZE);
-    let size_text = size_text.trim();
-    let font_size_pt = if size_text.is_empty() || size_text.eq_ignore_ascii_case(AUTO_SIZE) {
-        None
-    } else {
-        match size_text.parse::<f32>() {
-            Ok(pt) if (config::MIN_FONT_SIZE_PT..=config::MAX_FONT_SIZE_PT).contains(&pt) => {
-                Some(pt)
-            }
-            _ => {
-                let message = format!(
-                    "The font size must be \"{AUTO_SIZE}\" or a number of points between {} and {}.",
-                    config::MIN_FONT_SIZE_PT,
-                    config::MAX_FONT_SIZE_PT
-                );
-                return complain(hwnd, &message, ID_FONT_SIZE);
-            }
-        }
-    };
 
     let new = Config {
         host,
         interval_ms,
         font_family,
         font_weight,
-        font_size_pt,
     };
     match crate::apply_config(new) {
         Ok(()) => unsafe {

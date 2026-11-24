@@ -3,8 +3,6 @@ use std::path::PathBuf;
 
 pub const MIN_INTERVAL_MS: u32 = 250;
 pub const MAX_INTERVAL_MS: u32 = 3_600_000;
-pub const MIN_FONT_SIZE_PT: f32 = 4.0;
-pub const MAX_FONT_SIZE_PT: f32 = 72.0;
 /// The Windows 11 UI font, as the taskbar clock uses it.
 pub const DEFAULT_FONT_FAMILY: &str = "Segoe UI Variable Text";
 
@@ -19,8 +17,6 @@ pub struct Config {
     pub font_family: String,
     /// Font weight, 100 (thin) to 900 (black); 400 is regular.
     pub font_weight: u16,
-    /// Font size in points; `None` fits the text to the icon.
-    pub font_size_pt: Option<f32>,
 }
 
 impl Default for Config {
@@ -30,7 +26,6 @@ impl Default for Config {
             interval_ms: 5_000,
             font_family: DEFAULT_FONT_FAMILY.into(),
             font_weight: 400,
-            font_size_pt: None,
         }
     }
 }
@@ -62,10 +57,6 @@ pub fn load() -> Config {
         config.font_family = DEFAULT_FONT_FAMILY.into();
     }
     config.font_weight = config.font_weight.clamp(100, 900);
-    config.font_size_pt = config
-        .font_size_pt
-        .filter(|pt| pt.is_finite())
-        .map(|pt| pt.clamp(MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT));
     config
 }
 
