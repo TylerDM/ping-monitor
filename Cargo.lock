@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "ping-monitor"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "ab_glyph",
  "serde",
