@@ -1,60 +1,46 @@
 <#
 .SYNOPSIS
-    Builds Ping Monitor and installs it for the current user (no admin needed).
-
-.PARAMETER Startup
-    Also start Ping Monitor when you sign in.
+    Builds the MSI from this checkout and installs it, exactly as a release
+    would be installed (per user, no admin needed). Run it again to update.
 
 .PARAMETER Uninstall
-    Remove the app and its shortcuts. Settings in %APPDATA%\PingMonitor are kept.
+    Remove Ping Monitor, the same as Settings > Apps. Settings in
+    %APPDATA%\PingMonitor are kept.
 #>
 param(
-    [switch]$Startup,
     [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
 
-$installDir = Join-Path $env:LOCALAPPDATA 'Programs\PingMonitor'
-$exe = Join-Path $installDir 'ping-monitor.exe'
-$startMenuLink = Join-Path ([Environment]::GetFolderPath('Programs')) 'Ping Monitor.lnk'
-$startupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'Ping Monitor.lnk'
-
-function New-Shortcut($path, $target) {
-    $shell = New-Object -ComObject WScript.Shell
-    $link = $shell.CreateShortcut($path)
-    $link.TargetPath = $target
-    $link.WorkingDirectory = Split-Path $target
-    $link.Description = 'Shows your current ping in the notification area'
-    $link.Save()
+function Get-InstalledProductCode {
+    # Every version shares the UpgradeCode in installer/PingMonitor.wxs.
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    @($installer.RelatedProducts('{DBD4F0B6-0A38-4CBB-9FBA-31A7BDA0BE11}')) | Select-Object -First 1
 }
 
-# The exe can't be replaced or removed while it's running.
-Get-Process ping-monitor -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Milliseconds 300
+function Invoke-Msiexec([string[]]$Arguments) {
+    $process = Start-Process msiexec.exe -ArgumentList $Arguments -Wait -PassThru
+    # 3010: success, restart required (never expected here).
+    if ($process.ExitCode -notin 0, 3010) { throw "msiexec failed with exit code $($process.ExitCode)" }
+}
+
+# Leftovers from before there was an installer: a copied exe plus shortcuts.
+# The MSI owns the Start Menu shortcut and the folder now; the old Startup
+# shortcut is replaced by the installer's run-at-sign-in entry.
+Remove-Item (Join-Path ([Environment]::GetFolderPath('Startup')) 'Ping Monitor.lnk') -ErrorAction SilentlyContinue
 
 if ($Uninstall) {
-    Remove-Item $startMenuLink, $startupLink -ErrorAction SilentlyContinue
-    Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
+    $code = Get-InstalledProductCode
+    if (-not $code) {
+        Write-Host 'Ping Monitor is not installed.'
+        return
+    }
+    Invoke-Msiexec '/x', $code, '/passive'
     Write-Host 'Ping Monitor uninstalled.'
     return
 }
 
-Push-Location $PSScriptRoot
-try {
-    cargo build --release
-    if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
-} finally {
-    Pop-Location
-}
-
-New-Item -ItemType Directory -Force $installDir | Out-Null
-Copy-Item (Join-Path $PSScriptRoot 'target\release\ping-monitor.exe') $exe -Force
-New-Shortcut $startMenuLink $exe
-if ($Startup) {
-    New-Shortcut $startupLink $exe
-} else {
-    Remove-Item $startupLink -ErrorAction SilentlyContinue
-}
-
-Start-Process $exe
-Write-Host "Installed to $installDir and started."
+& (Join-Path $PSScriptRoot 'scripts\build-msi.ps1')
+# A running copy is closed by the installer and the new one started after.
+Invoke-Msiexec '/i', "`"$(Join-Path $PSScriptRoot 'target\wix\PingMonitor.msi')`"", '/passive', '/norestart'
+Write-Host 'Installed and started.'

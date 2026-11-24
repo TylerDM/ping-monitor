@@ -1,0 +1,51 @@
+name: Release
+
+# Pushing a tag like v0.2.0 builds the MSI and publishes it as a GitHub
+# release. scripts/release.ps1 bumps the version, tags and pushes in one go.
+#
+# The asset is always named PingMonitor.msi, so
+#   https://github.com/TylerDM/ping-monitor/releases/latest/download/PingMonitor.msi
+# is a permanent link to the newest installer, and the in-app updater can find it.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  release:
+    name: Build & publish MSI
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check the tag matches Cargo.toml
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          if ("v$version" -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME doesn't match Cargo.toml version $version"
+          }
+
+      - name: Build MSI
+        shell: pwsh
+        run: ./scripts/build-msi.ps1
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create $env:GITHUB_REF_NAME target/wix/PingMonitor.msi
+          --title "Ping Monitor $($env:GITHUB_REF_NAME.TrimStart('v'))"
+          --generate-notes

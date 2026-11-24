@@ -1,0 +1,74 @@
+<!--
+  Per-user MSI for Ping Monitor: no admin prompt, installs to
+  %LOCALAPPDATA%\Programs\PingMonitor, adds a Start Menu shortcut, starts at
+  sign-in, and launches the app when it finishes. Installing a newer MSI
+  replaces the old version in place; Settings > Apps removes it.
+
+  Built by scripts/build-msi.ps1, which passes Version and ExePath.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- UpgradeCode must never change: it is how a new MSI finds the old install. -->
+  <Package Name="Ping Monitor"
+           Manufacturer="Tyler M"
+           Version="$(Version)"
+           UpgradeCode="DBD4F0B6-0A38-4CBB-9FBA-31A7BDA0BE11"
+           Scope="perUser">
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Ping Monitor is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/TylerDM/ping-monitor" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!--
+      Per-user files go under the user profile, so each component's key path
+      is an HKCU value rather than a file (ICE38), and the folders are removed
+      explicitly on uninstall (ICE64).
+    -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="UserProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="PingMonitor">
+          <Component Id="App" Guid="DAE89ACE-8FFA-4364-973C-8B6AADEC6DCF">
+            <File Id="PingMonitorExe" Source="$(ExePath)" Name="ping-monitor.exe" />
+            <RegistryValue Root="HKCU" Key="Software\PingMonitor" Name="Installed"
+                           Type="integer" Value="1" KeyPath="yes" />
+            <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+            <RemoveFolder Id="RemoveUserProgramsFolder" Directory="UserProgramsFolder" On="uninstall" />
+          </Component>
+
+          <!-- Start at sign-in. Shows in Task Manager > Startup apps, where it can be switched off. -->
+          <Component Id="RunAtSignIn">
+            <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                           Name="PingMonitor" Type="string" Value="&quot;[#PingMonitorExe]&quot;"
+                           KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="StartMenu" Name="Ping Monitor" Target="[#PingMonitorExe]"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Description="Shows your current ping in the notification area" />
+        <RegistryValue Root="HKCU" Key="Software\PingMonitor" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="App" />
+      <ComponentRef Id="RunAtSignIn" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- Start the app once installing (or upgrading) is done; not on uninstall. -->
+    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[#PingMonitorExe]&quot;"
+                  Execute="immediate" Impersonate="yes" Return="asyncNoWait" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

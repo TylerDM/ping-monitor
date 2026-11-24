@@ -29,6 +29,7 @@
 *.toml          text eol=lf
 *.manifest      text eol=lf
 *.rc            text eol=lf
+*.wxs           text eol=lf
 
 *.json          text eol=lf
 *.jsonc         text eol=lf
@@ -67,6 +68,7 @@ LICENSE         text eol=lf
 *.lib           binary
 *.so            binary
 *.msix          binary
+*.msi           binary
 *.pfx           binary
 
 ###############################################################################

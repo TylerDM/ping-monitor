@@ -4,10 +4,20 @@ A tiny Windows tray app whose icon is your current ping, in milliseconds, to a h
 
 - **Left-click** the icon to open the Stats tab: a chart of latency and packet loss over the last 12 hours (kept in memory only, so it starts empty each time the app starts), with a summary (now, average, min, max, loss). It updates live.
 - The **Settings** tab sets the host, ping interval, and the icon's font family, weight and size.
-- **Right-click** for a menu with Open, Settings and Quit.
+- **Right-click** for a menu with Open, Settings, Check for updates and Quit.
 - **Hover** for a tooltip with the last result, plus the average and packet loss over the last 60 pings.
 
 The number is drawn in the taskbar's own font (Segoe UI Variable) and text colour up to 50 ms, then shifts towards red, fully red at 200 ms. `×` means the request timed out and `!` means an error (hover for details). Colours follow the light or dark taskbar theme.
+
+## Installing
+
+Download **[PingMonitor.msi](https://github.com/TylerDM/ping-monitor/releases/latest/download/PingMonitor.msi)** from the latest release and run it. It installs for your account only (no admin prompt) into `%LOCALAPPDATA%\Programs\PingMonitor`, adds a Start Menu shortcut, starts Ping Monitor at sign-in, and launches it.
+
+The MSI isn't code-signed, so the first time, SmartScreen may say "Windows protected your PC": choose **More info**, then **Run anyway**.
+
+- **Updates:** Ping Monitor checks GitHub for a new release a minute after it starts and then daily. When there is one, a notification offers it; click it (or **Install update** in the tray menu) and it downloads, installs and restarts itself. **Check for updates** in the menu checks right away. Installing a newer MSI by hand works too.
+- **Starting at sign-in:** switch it off in Task Manager → Startup apps.
+- **Uninstalling:** Settings → Apps → Installed apps → Ping Monitor → Uninstall. Your settings in `%APPDATA%\PingMonitor` are kept.
 
 ## Settings
 
@@ -35,15 +45,23 @@ cargo build --release
 
 The binary ends up at `target\release\ping-monitor.exe`. Release builds have no console window; debug builds keep one for logging.
 
-## Installing
+The installer is built with [WiX](https://wixtoolset.org/), pinned as a repo-local dotnet tool in `dotnet-tools.json` (it needs the .NET SDK). `scripts/build-msi.ps1` builds `target\wix\PingMonitor.msi`, versioned from `Cargo.toml`.
 
-`install.ps1` builds a release, copies it to `%LOCALAPPDATA%\Programs\PingMonitor`, adds a Start Menu shortcut and starts the app. It needs no admin rights. Run it again to update.
+To build and install your working copy the same way a release installs, replacing whatever version is installed:
 
 ```bash
-pwsh -File install.ps1 -Startup
+pwsh -File install.ps1
 ```
 
-Leave out `-Startup` if you don't want it starting when you sign in. Run with `-Uninstall` to remove it; your settings are kept.
+`install.ps1 -Uninstall` removes it.
+
+## Releasing
+
+```bash
+pwsh -File scripts/release.ps1 0.2.0
+```
+
+That bumps the version in `Cargo.toml`, commits, tags `v0.2.0` and pushes. The tag starts `.github/workflows/release.yml`, which builds the MSI and publishes the GitHub release; installed copies offer the update within a day. Versions must go up: the updater only offers a release newer than what's running, and the MSI refuses to downgrade.
 
 ## Cross-platform development
 

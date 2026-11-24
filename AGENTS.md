@@ -21,6 +21,9 @@ plain Win32 controls plus a custom-drawn chart.
 | `src/icon.rs`     | renders the ping as text into an HICON; taskbar theme detection  |
 | `src/fonts.rs`    | finds installed fonts by family through DirectWrite              |
 | `src/config.rs`   | the per-user JSON config in `%APPDATA%\PingMonitor\config.json`  |
+| `src/update.rs`   | daily GitHub release check, MSI download and install             |
+| `src/http.rs`     | minimal HTTPS GET over WinHTTP                                   |
+| `installer/`      | the per-user WiX MSI; `scripts/build-msi.ps1` builds it          |
 | `app.manifest`    | embedded by `build.rs`: common controls v6, per-monitor DPI      |
 
 ## Rules
@@ -34,6 +37,11 @@ plain Win32 controls plus a custom-drawn chart.
 - **Windows is the only target.** On Linux, check with
   `cargo clippy --target x86_64-pc-windows-msvc`. It never links, so no Windows
   SDK is needed.
+- **Never change the MSI's `UpgradeCode`** in `installer/PingMonitor.wxs`. It
+  is how a new version finds and replaces the installed one.
+- **Releases come from tags.** `scripts/release.ps1 X.Y.Z` bumps `Cargo.toml`,
+  tags and pushes; the release workflow refuses a tag that doesn't match. The
+  asset must stay named `PingMonitor.msi`: the updater looks for that name.
 - **Line endings are LF everywhere** except `.bat`/`.cmd`. See
   `.gitattributes`.
 
